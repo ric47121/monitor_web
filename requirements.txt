@@ -1,0 +1,5 @@
+matplotlib
+pygame-ce
+requests
+pystray
+Pillow

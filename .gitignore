@@ -1,0 +1,16 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv
+venv/
+env/
+
+# Project Specific
+config.json
+elsitio.log
+historial.json
+
+# OS
+.DS_Store
+Thumbs.db
