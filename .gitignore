@@ -10,7 +10,7 @@ env/
 config.json
 elsitio.log
 historial.json
-
+sitios.txt
 # OS
 .DS_Store
 Thumbs.db
