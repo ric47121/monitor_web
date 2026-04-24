@@ -12,7 +12,7 @@ from tkinter import messagebox, scrolledtext, ttk
 import matplotlib.pyplot as plt
 import pygame  # Para reproducir MP3
 import requests
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 
 # Para inicio automático en Windows
 try:
@@ -177,8 +177,14 @@ class MonitorApp:
         # Gráfica Global
         self.fig, self.ax = plt.subplots(figsize=(6, 3), dpi=90)
         self.fig.set_facecolor("#f8f9fa")
+        
+        # Contenedor para la gráfica y el toolbar
         self.canvas = FigureCanvasTkAgg(self.fig, master=body)
-        self.canvas.get_tk_widget().pack(fill="both", expand=True, pady=10)
+        self.canvas.get_tk_widget().pack(fill="both", expand=True)
+        
+        self.toolbar = NavigationToolbar2Tk(self.canvas, body)
+        self.toolbar.update()
+        self.toolbar.pack(side=tk.BOTTOM, fill=tk.X)
 
     def obtener_lista_alarmas(self):
         """Lista archivos MP3 en la carpeta de alarmas."""
@@ -285,6 +291,10 @@ class MonitorApp:
         fig_det.autofmt_xdate()
         canvas_det = FigureCanvasTkAgg(fig_det, master=graph_frame)
         canvas_det.get_tk_widget().pack(fill="both", expand=True)
+
+        toolbar_det = NavigationToolbar2Tk(canvas_det, graph_frame)
+        toolbar_det.update()
+        toolbar_det.pack(side=tk.BOTTOM, fill=tk.X)
 
         total_checks = data["checks"]
         fails = data["fails"]
@@ -643,7 +653,7 @@ class MonitorApp:
                 self.sitios[url]["historial"].append(
                     {"hora": ahora, "latencia": latencia, "online": online}
                 )
-                if len(self.sitios[url]["historial"]) > 100:
+                if len(self.sitios[url]["historial"]) > 500:
                     self.sitios[url]["historial"].pop(0)
 
                 uptime = (
@@ -695,7 +705,7 @@ class MonitorApp:
     def actualizar_grafica(self, porcentaje):
         self.datos_tiempo.append(datetime.now())
         self.datos_porcentaje.append(porcentaje)
-        if len(self.datos_tiempo) > 30:
+        if len(self.datos_tiempo) > 500:
             self.datos_tiempo.pop(0)
             self.datos_porcentaje.pop(0)
         self.ax.clear()
