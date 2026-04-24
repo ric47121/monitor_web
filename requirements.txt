@@ -3,3 +3,4 @@ pygame-ce
 requests
 pystray
 Pillow
+flask

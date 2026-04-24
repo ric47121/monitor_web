@@ -14,6 +14,207 @@ import pygame  # Para reproducir MP3
 import requests
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 
+try:
+    from flask import Flask, jsonify, render_template_string
+    FLASK_SUPPORT = True
+except ImportError:
+    FLASK_SUPPORT = False
+
+# --- PLANTILLAS DASHBOARD WEB ---
+WEB_TEMPLATE = """
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Monitor Pro - Dashboard</title>
+    <meta http-equiv="refresh" content="30">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; background: #f4f7f6; margin: 0; padding: 20px; color: #333; }
+        .container { max-width: 1000px; margin: auto; }
+        header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; }
+        .card { background: white; padding: 25px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); margin-bottom: 20px; }
+        table { width: 100%; border-collapse: collapse; }
+        th { text-align: left; padding: 15px; border-bottom: 2px solid #f0f0f0; color: #666; font-weight: 600; }
+        td { padding: 15px; border-bottom: 1px solid #f0f0f0; }
+        .status-badge { padding: 6px 12px; border-radius: 20px; font-size: 0.85em; font-weight: bold; }
+        .online { background: #e6fffa; color: #234e52; border: 1px solid #b2f5ea; }
+        .offline { background: #fff5f5; color: #742a2a; border: 1px solid #feb2b2; }
+        a { color: #007bff; text-decoration: none; font-weight: 500; }
+        a:hover { text-decoration: underline; }
+        .chart-container { height: 300px; width: 100%; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🌐 Monitor de Sitios Web</h1>
+            <div style="text-align: right">
+                <div style="font-size: 0.9em; color: #718096">Salud Global: <strong>{{ global_health }}%</strong></div>
+                <div style="font-size: 0.8em; color: #a0aec0">Última actualización: {{ ahora }}</div>
+            </div>
+        </header>
+
+        <div class="card">
+            <h3>📈 Salud Global del Ecosistema</h3>
+            <div class="chart-container">
+                <canvas id="globalChart"></canvas>
+            </div>
+        </div>
+
+        <div class="card">
+            <table>
+                <thead>
+                    <tr>
+                        <th>SITIO WEB</th>
+                        <th>ESTADO</th>
+                        <th>LATENCIA</th>
+                        <th>UPTIME</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for url, data in sitios.items() %}
+                    <tr>
+                        <td><a href="/site/{{ url }}">{{ url }}</a></td>
+                        <td>
+                            {% if data.estado == "UP" %}
+                                <span class="status-badge online">● ONLINE</span>
+                            {% else %}
+                                <span class="status-badge offline">● DOWN</span>
+                            {% endif %}
+                        </td>
+                        <td style="font-family: monospace;">{{ data.historial[-1].latencia if data.historial else '-' }} ms</td>
+                        <td style="font-weight: bold; color: #2b6cb0;">{{ "%.2f"|format(((data.checks - data.fails) / data.checks * 100) if data.checks > 0 else 100) }}%</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        const ctx = document.getElementById('globalChart').getContext('2d');
+        new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: {{ global_labels|safe }},
+                datasets: [{
+                    label: '% Online',
+                    data: {{ global_values|safe }},
+                    borderColor: '#007bff',
+                    backgroundColor: 'rgba(0, 123, 255, 0.1)',
+                    fill: true,
+                    tension: 0.3
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: { y: { min: 0, max: 100 } }
+            }
+        });
+    </script>
+</body>
+</html>
+"""
+
+DETALLE_WEB_TEMPLATE = """
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Detalle - {{ url }}</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; background: #f4f7f6; margin: 0; padding: 20px; }
+        .container { max-width: 1000px; margin: auto; }
+        .card { background: white; padding: 25px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); margin-bottom: 20px; }
+        .back-link { margin-bottom: 20px; display: block; color: #007bff; text-decoration: none; }
+        .chart-container { height: 350px; width: 100%; margin-bottom: 30px; }
+        .stats-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+        .stat-box { background: #f8f9fa; padding: 15px; border-radius: 8px; text-align: center; }
+        .stat-val { font-size: 1.5em; font-weight: bold; color: #2d3748; }
+        .stat-label { font-size: 0.8em; color: #718096; text-transform: uppercase; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <a href="/" class="back-link">← Volver al Dashboard</a>
+        <div class="card">
+            <h1>📊 Análisis Detallado: {{ url }}</h1>
+            <div class="stats-grid">
+                <div class="stat-box">
+                    <div class="stat-val">{{ "%.2f"|format(uptime) }}%</div>
+                    <div class="stat-label">Uptime Total</div>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-val">{{ data.checks }}</div>
+                    <div class="stat-label">Chequeos Totales</div>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-val">{{ data.fails }}</div>
+                    <div class="stat-label">Fallos Detectados</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h3>⏱ Historial de Latencia (ms)</h3>
+            <div class="chart-container">
+                <canvas id="latenciaChart"></canvas>
+            </div>
+        </div>
+
+        <div class="card">
+            <h3>⚡ Estado de Disponibilidad (UP/DOWN)</h3>
+            <div class="chart-container">
+                <canvas id="statusChart"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const labels = {{ labels|safe }};
+        
+        // Chart Latencia
+        new Chart(document.getElementById('latenciaChart'), {
+            type: 'line',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: 'Latencia (ms)',
+                    data: {{ latencias|safe }},
+                    borderColor: '#ff7f0e',
+                    backgroundColor: 'rgba(255, 127, 14, 0.1)',
+                    fill: true
+                }]
+            },
+            options: { responsive: true, maintainAspectRatio: false }
+        });
+
+        // Chart Estado
+        new Chart(document.getElementById('statusChart'), {
+            type: 'line',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: 'Estado (1=UP, 0=DOWN)',
+                    data: {{ estados|safe }},
+                    borderColor: '#2ca02c',
+                    stepped: true,
+                    backgroundColor: 'rgba(44, 160, 44, 0.1)',
+                    fill: true
+                }]
+            },
+            options: { 
+                responsive: true, 
+                maintainAspectRatio: false,
+                scales: { y: { min: -0.5, max: 1.5, ticks: { stepSize: 1 } } }
+            }
+        });
+    </script>
+</body>
+</html>
+"""
+
 # Para inicio automático en Windows
 try:
     import winreg
@@ -66,6 +267,8 @@ class MonitorApp:
         self.sonido_activado = tk.BooleanVar(value=True)
         self.inicio_automatico = tk.BooleanVar(value=False)
         self.archivo_alarma = tk.StringVar(value="Ninguno")
+        self.web_activo = tk.BooleanVar(value=False)
+        self.web_puerto = tk.IntVar(value=5000)
 
         self.datos_tiempo = []
         self.datos_porcentaje = []
@@ -82,6 +285,8 @@ class MonitorApp:
         if TRAY_SUPPORT:
             self.setup_tray()
             self.root.protocol("WM_DELETE_WINDOW", self.hide_window)
+
+        self.iniciar_servidor_web()
 
     def setup_ui(self):
         # --- ESTILOS ---
@@ -313,14 +518,28 @@ class MonitorApp:
     def abrir_configuracion(self):
         config_win = tk.Toplevel(self.root)
         config_win.title("Ajustes del Monitor")
-        config_win.geometry("450x550")
-        config_win.resizable(False, False)
+        config_win.geometry("480x700")
+        config_win.resizable(False, True)  # Permitir redimensionar verticalmente
         config_win.transient(self.root)
         config_win.grab_set()
 
-        container = tk.Frame(config_win, padx=20, pady=20)
-        container.pack(fill="both", expand=True)
+        # Añadir un scrollbar si el contenido excede el alto
+        main_canvas = tk.Canvas(config_win, bg="white", highlightthickness=0)
+        scrollbar = ttk.Scrollbar(config_win, orient="vertical", command=main_canvas.yview)
+        container = tk.Frame(main_canvas, padx=20, pady=20, bg="white")
 
+        container.bind(
+            "<Configure>",
+            lambda e: main_canvas.configure(scrollregion=main_canvas.bbox("all"))
+        )
+
+        main_canvas.create_window((0, 0), window=container, anchor="nw", width=440)
+        main_canvas.configure(yscrollcommand=scrollbar.set)
+
+        scrollbar.pack(side="right", fill="y")
+        main_canvas.pack(side="left", fill="both", expand=True)
+
+        # --- CONTENIDO ---
         # Telegram
         tk.Label(
             container, text="TOKEN DE TELEGRAM", font=("Segoe UI", 9, "bold")
@@ -360,6 +579,18 @@ class MonitorApp:
                 variable=self.inicio_automatico,
             ).pack(anchor="w")
 
+        # Servidor Web
+        tk.Label(container, text="SERVIDOR WEB DASHBOARD", font=("Segoe UI", 9, "bold")).pack(
+            anchor="w", pady=(10, 0)
+        )
+        tk.Checkbutton(
+            container, text="Activar servidor web", variable=self.web_activo
+        ).pack(anchor="w")
+        
+        frame_puerto = tk.Frame(container)
+        frame_puerto.pack(fill="x")
+        tk.Label(frame_puerto, text="Puerto:", font=("Segoe UI", 9)).pack(side="left")
+        tk.Entry(frame_puerto, textvariable=self.web_puerto, width=10).pack(side="left", padx=5)
 
         # Selector de MP3
         tk.Label(
@@ -412,28 +643,32 @@ class MonitorApp:
         manual_win.geometry("550x650")
 
         texto_manual = """
-📖 MANUAL DE USO RÁPIDO v5.0
+📖 MANUAL DE USO RÁPIDO v5.1
 
 1. GESTIÓN DE SITIOS:
 - Ingrese la URL completa y pulse 'Añadir'.
 
-2. ALARMAS MP3 (¡Nuevo!):
-- Cree una carpeta llamada 'alarmas' en el mismo directorio del script.
-- Guarde sus archivos .mp3 allí.
-- En 'Configuración', elija su sonido favorito.
-- Si no hay archivos MP3, el programa usará un pitido de alerta por defecto.
+2. DASHBOARD WEB (¡Nuevo!):
+- Active el servidor en 'Configuración'.
+- Acceda desde su navegador a http://localhost:PUERTO (por defecto 5000).
+- Permite monitoreo remoto con gráficas interactivas.
+- Haga clic en el nombre de un sitio para ver su análisis detallado.
 
-3. HISTORIAL PERSISTENTE:
-- Los datos de las gráficas se guardan en 'historial.json'.
-- Doble clic en la tabla para ver el detalle de un sitio.
+3. GRÁFICAS INTERACTIVAS (¡Nuevo!):
+- Use la LUPA para hacer zoom en periodos específicos.
+- Use la CRUZ (Pan) para desplazarse por el historial.
+- El botón de la CASA vuelve a la vista original.
 
-4. CONFIGURACIÓN (⚙️):
-- Configure Telegram para alertas remotas.
-- Ajuste el intervalo de escaneo.
+4. ALARMAS MP3:
+- Guarde archivos .mp3 en la carpeta '/alarmas'.
+- Seleccione su sonido favorito en 'Configuración'.
 
-5. ARCHIVOS:
-- 'elsitio.log': Registros de eventos.
-- 'config.json': Sus ajustes y tokens.
+5. HISTORIAL PERSISTENTE:
+- Doble clic en cualquier sitio de la tabla para ver su análisis detallado.
+- Los datos se guardan automáticamente en 'historial.json'.
+
+6. CONFIGURACIÓN (⚙️):
+- Ajuste el intervalo de escaneo, alertas de Telegram y puerto web.
         """
         txt_area = scrolledtext.ScrolledText(
             manual_win, wrap=tk.WORD, font=("Segoe UI", 10), padx=10, pady=10
@@ -467,10 +702,20 @@ class MonitorApp:
                     self.sonido_activado.set(conf.get("sonido", True))
                     self.inicio_automatico.set(conf.get("inicio_automatico", False))
                     self.archivo_alarma.set(conf.get("archivo_alarma", "Ninguno"))
+                    self.web_activo.set(conf.get("web_activo", False))
+                    self.web_puerto.set(conf.get("web_puerto", 5000))
             except:
                 pass
 
     def guardar_configuracion(self):
+        # Guardar estado previo para ver si cambió el servidor web
+        web_previo = False
+        if os.path.exists(ARCHIVO_CONFIG):
+            try:
+                with open(ARCHIVO_CONFIG, "r") as f:
+                    web_previo = json.load(f).get("web_activo", False)
+            except: pass
+
         conf = {
             "token": self.token_tg.get(),
             "id": self.id_tg.get(),
@@ -478,12 +723,20 @@ class MonitorApp:
             "sonido": self.sonido_activado.get(),
             "inicio_automatico": self.inicio_automatico.get(),
             "archivo_alarma": self.archivo_alarma.get(),
+            "web_activo": self.web_activo.get(),
+            "web_puerto": self.web_puerto.get(),
         }
         with open(ARCHIVO_CONFIG, "w") as f:
             json.dump(conf, f)
 
         if WINDOWS_REGISTRY:
             self.actualizar_inicio_automatico()
+            
+        # Si se activó el web server y antes estaba apagado, iniciarlo
+        if self.web_activo.get() and not web_previo:
+            self.iniciar_servidor_web()
+        elif not self.web_activo.get() and web_previo:
+            messagebox.showinfo("Aviso", "El servidor web se desactivará al reiniciar la aplicación.")
 
     def actualizar_inicio_automatico(self):
         """Gestiona la entrada del registro para el inicio con Windows."""
@@ -767,6 +1020,91 @@ class MonitorApp:
         if TRAY_SUPPORT:
             self.icon.stop()
         self.root.quit()
+
+    # --- SERVIDOR WEB ---
+    def iniciar_servidor_web(self):
+        """Inicia el servidor Flask en un hilo separado si está activado."""
+        if not FLASK_SUPPORT or not self.web_activo.get():
+            return
+
+        threading.Thread(target=self.run_flask, daemon=True).start()
+        logging.info(f"Servidor web iniciado en puerto {self.web_puerto.get()}")
+
+    def run_flask(self):
+        app = Flask(__name__)
+
+        @app.route("/")
+        def index():
+            total = len(self.sitios)
+            online = sum(1 for s in self.sitios.values() if s["estado"] == "UP")
+            salud = (online / total * 100) if total > 0 else 0
+            
+            # Preparar datos para la gráfica global
+            labels = [t.strftime("%H:%M:%S") for t in self.datos_tiempo]
+            values = self.datos_porcentaje
+
+            return render_template_string(
+                WEB_TEMPLATE,
+                sitios=self.sitios,
+                global_health=f"{salud:.1f}",
+                global_labels=json.dumps(labels),
+                global_values=json.dumps(values),
+                ahora=datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            )
+
+        @app.route("/site/<path:url>")
+        def site_detail(url):
+            data = self.sitios.get(url)
+            if not data:
+                return "Sitio no encontrado", 404
+            
+            # Preparar datos del historial
+            labels = []
+            latencias = []
+            estados = []
+            
+            for h in data["historial"]:
+                hora = h["hora"]
+                if isinstance(hora, str):
+                    hora_obj = datetime.fromisoformat(hora)
+                else:
+                    hora_obj = hora
+                
+                labels.append(hora_obj.strftime("%H:%M:%S"))
+                latencias.append(h["latencia"])
+                estados.append(1 if h["online"] else 0)
+            
+            uptime = ((data["checks"] - data["fails"]) / data["checks"] * 100) if data["checks"] > 0 else 100
+            
+            return render_template_string(
+                DETALLE_WEB_TEMPLATE,
+                url=url,
+                data=data,
+                uptime=uptime,
+                labels=json.dumps(labels),
+                latencias=json.dumps(latencias),
+                estados=json.dumps(estados)
+            )
+
+        @app.route("/api/data")
+        def get_data():
+            # Limpiar datos para JSON (quitar objetos datetime)
+            data_clean = {}
+            for url, info in self.sitios.items():
+                data_clean[url] = info.copy()
+                hist_clean = []
+                for h in info["historial"]:
+                    item = h.copy()
+                    if isinstance(item["hora"], datetime):
+                        item["hora"] = item["hora"].isoformat()
+                    hist_clean.append(item)
+                data_clean[url]["historial"] = hist_clean
+            return jsonify(data_clean)
+
+        try:
+            app.run(host="0.0.0.0", port=self.web_puerto.get(), debug=False, use_reloader=False)
+        except Exception as e:
+            logging.error(f"Error en servidor web: {e}")
 
 
 if __name__ == "__main__":
