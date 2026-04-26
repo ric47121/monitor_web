@@ -7,7 +7,7 @@ import time
 import tkinter as tk
 import winsound  # Para alertas sonoras de respaldo
 from datetime import datetime
-from tkinter import messagebox, scrolledtext, ttk
+from tkinter import messagebox, scrolledtext, simpledialog, ttk
 
 import matplotlib.pyplot as plt
 import pygame  # Para reproducir MP3
@@ -258,7 +258,7 @@ class MonitorApp:
         self.root.configure(bg="#f8f9fa")
 
         self.monitoreando = False
-        self.sitios = {}  # {url: {estado, checks, fails, historial: []}}
+        self.sitios = {}  # {url: {comentario, estado, checks, fails, historial: []}}
 
         # Variables de configuración (Persistentes)
         self.token_tg = tk.StringVar()
@@ -307,6 +307,11 @@ class MonitorApp:
         self.entry_url = tk.Entry(top_bar, font=("Segoe UI", 10), width=35)
         self.entry_url.pack(side="left", padx=10)
         self.entry_url.insert(0, "https://")
+        tk.Label(
+            top_bar, text="Comentario:", bg="#ffffff", font=("Segoe UI", 10)
+        ).pack(side="left")
+        self.entry_comentario = tk.Entry(top_bar, font=("Segoe UI", 10), width=24)
+        self.entry_comentario.pack(side="left", padx=8)
 
         tk.Button(
             top_bar,
@@ -322,6 +327,15 @@ class MonitorApp:
             text="✖ Eliminar",
             command=self.eliminar_sitio,
             bg="#6c757d",
+            fg="white",
+            padx=15,
+            relief="flat",
+        ).pack(side="left", padx=2)
+        tk.Button(
+            top_bar,
+            text="Editar comentario",
+            command=self.editar_comentario_sitio,
+            bg="#17a2b8",
             fg="white",
             padx=15,
             relief="flat",
@@ -351,15 +365,17 @@ class MonitorApp:
         ).pack(anchor="w")
 
         # Tabla de sitios
-        columns = ("url", "status", "latency", "uptime", "last_check")
+        columns = ("url", "comment", "status", "latency", "uptime", "last_check")
         self.tree = ttk.Treeview(body, columns=columns, show="headings", height=8)
         self.tree.heading("url", text="URL del Sitio")
+        self.tree.heading("comment", text="Comentario")
         self.tree.heading("status", text="Estado")
         self.tree.heading("latency", text="Latencia")
         self.tree.heading("uptime", text="Uptime %")
         self.tree.heading("last_check", text="Visto")
 
-        self.tree.column("url", width=350)
+        self.tree.column("url", width=290)
+        self.tree.column("comment", width=220)
         self.tree.column("status", width=120, anchor="center")
         self.tree.column("latency", width=100, anchor="center")
         self.tree.pack(fill="x", pady=5)
@@ -767,10 +783,21 @@ class MonitorApp:
     def cargar_sitios_desde_archivo(self):
         if os.path.exists(ARCHIVO_SITIOS):
             with open(ARCHIVO_SITIOS, "r") as f:
-                for url in f.read().splitlines():
+                for linea in f.read().splitlines():
+                    linea = linea.strip()
+                    if not linea:
+                        continue
+
+                    if "	" in linea:
+                        url, comentario = linea.split("	", 1)
+                    else:
+                        url, comentario = linea, ""
+
                     url = url.strip()
+                    comentario = comentario.strip()
                     if url:
                         self.sitios[url] = {
+                            "comentario": comentario,
                             "estado": "UP",
                             "checks": 0,
                             "fails": 0,
@@ -780,7 +807,7 @@ class MonitorApp:
                             "",
                             "end",
                             iid=url,
-                            values=(url, "PENDIENTE", "-", "100%", "-"),
+                            values=(url, comentario, "PENDIENTE", "-", "100%", "-"),
                         )
 
     def cargar_historial_persistente(self):
@@ -821,33 +848,81 @@ class MonitorApp:
 
     def guardar_sitios_en_archivo(self):
         with open(ARCHIVO_SITIOS, "w") as f:
-            for url in self.sitios.keys():
-                f.write(f"{url}\n")
+            for url, info in self.sitios.items():
+                comentario = info.get("comentario", "").replace("\n", " ").strip()
+                f.write(f"{url}	{comentario}\n")
 
     def agregar_sitio(self):
         url = self.entry_url.get().strip()
+        comentario = self.entry_comentario.get().strip()
         if url and url not in self.sitios:
             self.sitios[url] = {
+                "comentario": comentario,
                 "estado": "UP",
                 "checks": 0,
                 "fails": 0,
                 "historial": [],
             }
             self.tree.insert(
-                "", "end", iid=url, values=(url, "PENDIENTE", "-", "100%", "-")
+                "", "end", iid=url, values=(url, comentario, "PENDIENTE", "-", "100%", "-")
             )
             self.guardar_sitios_en_archivo()
             self.entry_url.delete(0, tk.END)
             self.entry_url.insert(0, "https://")
+            self.entry_comentario.delete(0, tk.END)
 
     def eliminar_sitio(self):
         selected = self.tree.selection()
-        if selected:
-            for item in selected:
-                del self.sitios[item]
-                self.tree.delete(item)
-            self.guardar_sitios_en_archivo()
-            self.guardar_historial_persistente()
+        if not selected:
+            messagebox.showwarning("Eliminar sitio", "Selecciona al menos una URL para eliminar.")
+            return
+        cantidad = len(selected)
+        mensaje = f"Vas a eliminar {cantidad} URL(s). Esta accion no se puede deshacer.\n\nDeseas continuar?"
+        if not messagebox.askyesno("Confirmar eliminacion", mensaje):
+            return
+
+        for item in selected:
+            del self.sitios[item]
+            self.tree.delete(item)
+        self.guardar_sitios_en_archivo()
+        self.guardar_historial_persistente()
+
+    def editar_comentario_sitio(self):
+        selected = self.tree.selection()
+        if not selected:
+            messagebox.showwarning(
+                "Editar comentario", "Seleccion? una URL para editar su comentario."
+            )
+            return
+        if len(selected) > 1:
+            messagebox.showwarning(
+                "Editar comentario", "Seleccion? solo una URL a la vez."
+            )
+            return
+
+        url = selected[0]
+        if url not in self.sitios:
+            return
+
+        comentario_actual = self.sitios[url].get("comentario", "")
+        nuevo_comentario = simpledialog.askstring(
+            "Editar comentario",
+            f"Comentario para:\n{url}",
+            initialvalue=comentario_actual,
+            parent=self.root,
+        )
+        if nuevo_comentario is None:
+            return
+
+        nuevo_comentario = nuevo_comentario.strip()
+        self.sitios[url]["comentario"] = nuevo_comentario
+
+        valores = list(self.tree.item(url, "values"))
+        if len(valores) == 6:
+            valores[1] = nuevo_comentario
+            self.tree.item(url, values=tuple(valores))
+
+        self.guardar_sitios_en_archivo()
 
     def enviar_telegram(self, mensaje):
         token = self.token_tg.get()
@@ -953,7 +1028,8 @@ class MonitorApp:
     def update_table_row(self, url, status, lat, uptime, time_str):
         if url in self.sitios:
             lat_s = f"{lat}ms" if lat > 0 else "-"
-            self.tree.item(url, values=(url, status, lat_s, uptime, time_str))
+            comentario = self.sitios[url].get("comentario", "")
+            self.tree.item(url, values=(url, comentario, status, lat_s, uptime, time_str))
 
     def actualizar_grafica(self, porcentaje):
         self.datos_tiempo.append(datetime.now())
@@ -1111,3 +1187,4 @@ if __name__ == "__main__":
     root = tk.Tk()
     app = MonitorApp(root)
     root.mainloop()
+
