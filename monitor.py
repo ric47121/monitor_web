@@ -266,6 +266,7 @@ class MonitorApp:
         self.intervalo = tk.IntVar(value=60)
         self.sonido_activado = tk.BooleanVar(value=True)
         self.inicio_automatico = tk.BooleanVar(value=False)
+        self.modo_oscuro = tk.BooleanVar(value=False)
         self.archivo_alarma = tk.StringVar(value="Ninguno")
         self.web_activo = tk.BooleanVar(value=False)
         self.web_puerto = tk.IntVar(value=5000)
@@ -344,6 +345,16 @@ class MonitorApp:
         tk.Button(
             top_bar, text="❓ Ayuda", command=self.mostrar_manual, bg="#f8f9fa", padx=10
         ).pack(side="right", padx=5)
+        
+        self.btn_tema = tk.Button(
+            top_bar,
+            text="🌙 Modo Oscuro",
+            command=self.toggle_tema,
+            bg="#f8f9fa",
+            padx=10,
+        )
+        self.btn_tema.pack(side="right", padx=5)
+
         tk.Button(
             top_bar,
             text="⚙ Configuración",
@@ -406,6 +417,8 @@ class MonitorApp:
         self.toolbar = NavigationToolbar2Tk(self.canvas, body)
         self.toolbar.update()
         self.toolbar.pack(side=tk.BOTTOM, fill=tk.X)
+        
+        self.aplicar_tema()
 
     def obtener_lista_alarmas(self):
         """Lista archivos MP3 en la carpeta de alarmas."""
@@ -453,30 +466,37 @@ class MonitorApp:
         if not data:
             return
 
+        oscuro = self.modo_oscuro.get()
+        bg_color = "#1e1e1e" if oscuro else "white"
+        fg_color = "white" if oscuro else "black"
+        ax_bg = "#2d2d2d" if oscuro else "white"
+
         det_win = tk.Toplevel(self.root)
         det_win.title(f"Detalle: {url}")
         det_win.geometry("700x650")
-        det_win.configure(bg="white")
+        det_win.configure(bg=bg_color)
 
         tk.Label(
             det_win,
             text=f"Análisis de {url}",
             font=("Segoe UI", 14, "bold"),
-            bg="white",
+            bg=bg_color,
+            fg=fg_color,
             pady=10,
         ).pack()
 
         # Frame para gráficas
-        graph_frame = tk.Frame(det_win, bg="white")
+        graph_frame = tk.Frame(det_win, bg=bg_color)
         graph_frame.pack(fill="both", expand=True, padx=10, pady=10)
 
         fig_det, (ax_lat, ax_status) = plt.subplots(2, 1, figsize=(6, 6), sharex=True)
         fig_det.subplots_adjust(hspace=0.4)
+        fig_det.set_facecolor(bg_color)
 
         historia = data.get("historial", [])
         if not historia:
             tk.Label(
-                graph_frame, text="No hay datos suficientes para graficar.", bg="white"
+                graph_frame, text="No hay datos suficientes para graficar.", bg=bg_color, fg=fg_color
             ).pack()
             return
 
@@ -498,16 +518,24 @@ class MonitorApp:
             markersize=3,
             label="Latencia",
         )
-        ax_lat.set_title("Latencia de Respuesta (ms)")
+        ax_lat.set_title("Latencia de Respuesta (ms)", color=fg_color)
         ax_lat.grid(True, alpha=0.3)
-        ax_lat.set_ylabel("ms")
+        ax_lat.set_ylabel("ms", color=fg_color)
+        ax_lat.set_facecolor(ax_bg)
+        ax_lat.tick_params(colors=fg_color)
+        for spine in ax_lat.spines.values():
+            spine.set_color(fg_color)
 
         ax_status.step(tiempos, estados, where="post", color="#2ca02c", label="Estado")
-        ax_status.set_title("Disponibilidad (1=Online, 0=Offline)")
+        ax_status.set_title("Disponibilidad (1=Online, 0=Offline)", color=fg_color)
         ax_status.set_ylim(-0.2, 1.2)
         ax_status.set_yticks([0, 1])
         ax_status.set_yticklabels(["CAÍDO", "OK"])
         ax_status.grid(True, alpha=0.3)
+        ax_status.set_facecolor(ax_bg)
+        ax_status.tick_params(colors=fg_color)
+        for spine in ax_status.spines.values():
+            spine.set_color(fg_color)
 
         fig_det.autofmt_xdate()
         canvas_det = FigureCanvasTkAgg(fig_det, master=graph_frame)
@@ -523,26 +551,33 @@ class MonitorApp:
             ((total_checks - fails) / total_checks * 100) if total_checks > 0 else 100
         )
 
-        stats_frame = tk.Frame(det_win, bg="#f8f9fa", pady=10)
+        bg_stats = "#2d2d2d" if oscuro else "#f8f9fa"
+        stats_frame = tk.Frame(det_win, bg=bg_stats, pady=10)
         stats_frame.pack(fill="x")
 
         info_str = f"Muestras: {len(historia)} | Fallos Totales: {fails} | Uptime Global: {uptime_val:.2f}%"
         tk.Label(
-            stats_frame, text=info_str, font=("Segoe UI", 10, "bold"), bg="#f8f9fa"
+            stats_frame, text=info_str, font=("Segoe UI", 10, "bold"), bg=bg_stats, fg=fg_color
         ).pack()
 
     def abrir_configuracion(self):
+        oscuro = self.modo_oscuro.get()
+        bg_color = "#1e1e1e" if oscuro else "white"
+        fg_color = "white" if oscuro else "black"
+        bg_stats = "#2d2d2d" if oscuro else "#f8f9fa"
+
         config_win = tk.Toplevel(self.root)
         config_win.title("Ajustes del Monitor")
         config_win.geometry("480x700")
+        config_win.configure(bg=bg_color)
         config_win.resizable(False, True)  # Permitir redimensionar verticalmente
         config_win.transient(self.root)
         config_win.grab_set()
 
         # Añadir un scrollbar si el contenido excede el alto
-        main_canvas = tk.Canvas(config_win, bg="white", highlightthickness=0)
+        main_canvas = tk.Canvas(config_win, bg=bg_color, highlightthickness=0)
         scrollbar = ttk.Scrollbar(config_win, orient="vertical", command=main_canvas.yview)
-        container = tk.Frame(main_canvas, padx=20, pady=20, bg="white")
+        container = tk.Frame(main_canvas, padx=20, pady=20, bg=bg_color)
 
         container.bind(
             "<Configure>",
@@ -558,33 +593,35 @@ class MonitorApp:
         # --- CONTENIDO ---
         # Telegram
         tk.Label(
-            container, text="TOKEN DE TELEGRAM", font=("Segoe UI", 9, "bold")
+            container, text="TOKEN DE TELEGRAM", font=("Segoe UI", 9, "bold"), bg=bg_color, fg=fg_color
         ).pack(anchor="w")
-        tk.Entry(container, textvariable=self.token_tg, width=40, show="*").pack(
+        tk.Entry(container, textvariable=self.token_tg, width=40, show="*", bg=bg_stats, fg=fg_color, insertbackground=fg_color).pack(
             pady=(0, 15)
         )
 
-        tk.Label(container, text="CHAT ID", font=("Segoe UI", 9, "bold")).pack(
+        tk.Label(container, text="CHAT ID", font=("Segoe UI", 9, "bold"), bg=bg_color, fg=fg_color).pack(
             anchor="w"
         )
-        tk.Entry(container, textvariable=self.id_tg, width=40).pack(pady=(0, 15))
+        tk.Entry(container, textvariable=self.id_tg, width=40, bg=bg_stats, fg=fg_color, insertbackground=fg_color).pack(pady=(0, 15))
 
         # Intervalo
         tk.Label(
             container,
             text="INTERVALO DE CHEQUEO (Segundos)",
             font=("Segoe UI", 9, "bold"),
+            bg=bg_color,
+            fg=fg_color
         ).pack(anchor="w")
         tk.Scale(
-            container, from_=10, to=300, orient="horizontal", variable=self.intervalo
+            container, from_=10, to=300, orient="horizontal", variable=self.intervalo, bg=bg_color, fg=fg_color, highlightthickness=0
         ).pack(fill="x", pady=(0, 15))
 
         # Alarma Sonora
-        tk.Label(container, text="ALARMA SONORA", font=("Segoe UI", 9, "bold")).pack(
+        tk.Label(container, text="ALARMA SONORA", font=("Segoe UI", 9, "bold"), bg=bg_color, fg=fg_color).pack(
             anchor="w"
         )
         tk.Checkbutton(
-            container, text="Activar sonido en caídas", variable=self.sonido_activado
+            container, text="Activar sonido en caídas", variable=self.sonido_activado, bg=bg_color, fg=fg_color, selectcolor=bg_stats, activebackground=bg_color
         ).pack(anchor="w")
 
         # Inicio Automático
@@ -593,26 +630,32 @@ class MonitorApp:
                 container,
                 text="Iniciar con el sistema (Windows)",
                 variable=self.inicio_automatico,
+                bg=bg_color,
+                fg=fg_color,
+                selectcolor=bg_stats,
+                activebackground=bg_color
             ).pack(anchor="w")
 
         # Servidor Web
-        tk.Label(container, text="SERVIDOR WEB DASHBOARD", font=("Segoe UI", 9, "bold")).pack(
+        tk.Label(container, text="SERVIDOR WEB DASHBOARD", font=("Segoe UI", 9, "bold"), bg=bg_color, fg=fg_color).pack(
             anchor="w", pady=(10, 0)
         )
         tk.Checkbutton(
-            container, text="Activar servidor web", variable=self.web_activo
+            container, text="Activar servidor web", variable=self.web_activo, bg=bg_color, fg=fg_color, selectcolor=bg_stats, activebackground=bg_color
         ).pack(anchor="w")
         
-        frame_puerto = tk.Frame(container)
+        frame_puerto = tk.Frame(container, bg=bg_color)
         frame_puerto.pack(fill="x")
-        tk.Label(frame_puerto, text="Puerto:", font=("Segoe UI", 9)).pack(side="left")
-        tk.Entry(frame_puerto, textvariable=self.web_puerto, width=10).pack(side="left", padx=5)
+        tk.Label(frame_puerto, text="Puerto:", font=("Segoe UI", 9), bg=bg_color, fg=fg_color).pack(side="left")
+        tk.Entry(frame_puerto, textvariable=self.web_puerto, width=10, bg=bg_stats, fg=fg_color, insertbackground=fg_color).pack(side="left", padx=5)
 
         # Selector de MP3
         tk.Label(
             container,
             text="Seleccionar archivo MP3 (Carpeta /alarmas):",
             font=("Segoe UI", 8),
+            bg=bg_color,
+            fg=fg_color
         ).pack(anchor="w", pady=(5, 0))
         alarmas_disponibles = self.obtener_lista_alarmas()
         combo_alarma = ttk.Combobox(
@@ -627,13 +670,15 @@ class MonitorApp:
             container,
             text="🔊 Probar Sonido Seleccionado",
             command=self.probar_sonido,
-            bg="#e9ecef",
+            bg=bg_stats,
+            fg=fg_color
         ).pack(fill="x", pady=5)
         tk.Button(
             container,
             text="⏹ Detener Sonido",
             command=self.detener_sonido,
-            bg="#f8d7da",
+            bg="#f8d7da" if not oscuro else "#4a1212",
+            fg="black" if not oscuro else "white"
         ).pack(fill="x", pady=5)
         tk.Button(
             container,
@@ -717,6 +762,7 @@ class MonitorApp:
                     self.intervalo.set(conf.get("intervalo", 60))
                     self.sonido_activado.set(conf.get("sonido", True))
                     self.inicio_automatico.set(conf.get("inicio_automatico", False))
+                    self.modo_oscuro.set(conf.get("modo_oscuro", False))
                     self.archivo_alarma.set(conf.get("archivo_alarma", "Ninguno"))
                     self.web_activo.set(conf.get("web_activo", False))
                     self.web_puerto.set(conf.get("web_puerto", 5000))
@@ -738,6 +784,7 @@ class MonitorApp:
             "intervalo": self.intervalo.get(),
             "sonido": self.sonido_activado.get(),
             "inicio_automatico": self.inicio_automatico.get(),
+            "modo_oscuro": self.modo_oscuro.get(),
             "archivo_alarma": self.archivo_alarma.get(),
             "web_activo": self.web_activo.get(),
             "web_puerto": self.web_puerto.get(),
@@ -1037,22 +1084,118 @@ class MonitorApp:
         if len(self.datos_tiempo) > 500:
             self.datos_tiempo.pop(0)
             self.datos_porcentaje.pop(0)
+        
+        oscuro = self.modo_oscuro.get()
+        color_linea = "#007bff"
+        color_texto = "white" if oscuro else "black"
+        color_bg = "#1e1e1e" if oscuro else "#f8f9fa"
+        color_ax = "#2d2d2d" if oscuro else "white"
+
         self.ax.clear()
-        self.ax.set_title("Salud Global del Ecosistema (% Online)")
+        self.ax.set_title("Salud Global del Ecosistema (% Online)", color=color_texto)
         self.ax.set_ylim(-5, 105)
         self.ax.plot(
             self.datos_tiempo,
             self.datos_porcentaje,
-            color="#007bff",
+            color=color_linea,
             linewidth=2,
             marker="o",
             markersize=3,
         )
         self.ax.fill_between(
-            self.datos_tiempo, self.datos_porcentaje, color="#007bff", alpha=0.1
+            self.datos_tiempo, self.datos_porcentaje, color=color_linea, alpha=0.1
         )
+        
+        self.ax.set_facecolor(color_ax)
+        self.fig.set_facecolor(color_bg)
+        self.ax.tick_params(colors=color_texto)
+        for spine in self.ax.spines.values():
+            spine.set_color(color_texto)
+
         self.fig.autofmt_xdate()
         self.canvas.draw()
+
+    def toggle_tema(self):
+        self.modo_oscuro.set(not self.modo_oscuro.get())
+        self.aplicar_tema()
+        self.guardar_configuracion()
+
+    def aplicar_tema(self):
+        oscuro = self.modo_oscuro.get()
+        
+        # Colores
+        bg_main = "#1e1e1e" if oscuro else "#f8f9fa"
+        fg_main = "#ffffff" if oscuro else "#000000"
+        bg_card = "#2d2d2d" if oscuro else "#ffffff"
+        bg_top = "#252526" if oscuro else "#ffffff"
+        fg_secundario = "#cccccc" if oscuro else "#6c757d"
+        
+        self.root.configure(bg=bg_main)
+        
+        # Actualizar botón de tema
+        self.btn_tema.config(
+            text="☀️ Modo Claro" if oscuro else "🌙 Modo Oscuro",
+            bg=bg_top,
+            fg=fg_main
+        )
+
+        # Buscar y actualizar Frames, Labels y otros widgets estándar recursivamente
+        def actualizar_recursivo(widget):
+            name = widget.winfo_class()
+            if name == "Frame":
+                # Si el frame es la barra superior o el cuerpo
+                if widget.master == self.root:
+                    widget.configure(bg=bg_top if "!padx20" not in str(widget) else bg_main)
+                else:
+                    widget.configure(bg=bg_top if widget.cget("bg") == "#ffffff" else bg_main)
+            elif name == "Label":
+                # No cambiar color si es un badge o tiene colores específicos
+                curr_bg = widget.cget("bg")
+                if curr_bg in ["#ffffff", "#f8f9fa"]:
+                    widget.configure(bg=bg_top if curr_bg == "#ffffff" else bg_main, fg=fg_main)
+                elif curr_bg == "#f8f9fa" or widget.cget("fg") == "#6c757d":
+                    widget.configure(bg=bg_main, fg=fg_secundario)
+            
+            for child in widget.winfo_children():
+                actualizar_recursivo(child)
+
+        # Estilo para Treeview (ttk)
+        style = ttk.Style()
+        if oscuro:
+            style.configure("Treeview", background="#2d2d2d", foreground="white", fieldbackground="#2d2d2d")
+            style.configure("Treeview.Heading", background="#333333", foreground="white")
+            # Forzar colores en Treeview es complejo en clam, a veces es mejor cambiar el tema o configurar mas a fondo
+        else:
+            style.configure("Treeview", background="white", foreground="black", fieldbackground="white")
+            style.configure("Treeview.Heading", background="#e1e1e1", foreground="black")
+
+        # Intentar aplicar a widgets principales directamente para mayor seguridad
+        for child in self.root.winfo_children():
+            if isinstance(child, tk.Frame):
+                child.configure(bg=bg_top if child.cget("bg") in ["#ffffff", "#f8f9fa"] else bg_main)
+                for sub in child.winfo_children():
+                    if isinstance(sub, tk.Label):
+                        if sub.cget("bg") in ["#ffffff", "#f8f9fa"]:
+                            sub.configure(bg=child.cget("bg"), fg=fg_main)
+                        elif sub.cget("fg") == "#6c757d":
+                            sub.configure(bg=child.cget("bg"), fg=fg_secundario)
+                    elif isinstance(sub, tk.Entry):
+                        sub.configure(bg="#3d3d3d" if oscuro else "white", fg=fg_main, insertbackground=fg_main)
+
+        # Actualizar gráfica si hay datos
+        if self.datos_porcentaje:
+            self.actualizar_grafica(self.datos_porcentaje[-1])
+        else:
+            # Si no hay datos, solo limpiar con colores correctos
+            color_bg = "#1e1e1e" if oscuro else "#f8f9fa"
+            color_ax = "#2d2d2d" if oscuro else "white"
+            color_texto = "white" if oscuro else "black"
+            self.ax.set_facecolor(color_ax)
+            self.fig.set_facecolor(color_bg)
+            self.ax.tick_params(colors=color_texto)
+            for spine in self.ax.spines.values():
+                spine.set_color(color_texto)
+            self.canvas.draw()
 
     def toggle_monitor(self):
         if not self.monitoreando:
