@@ -4,3 +4,4 @@ requests
 pystray
 Pillow
 flask
+rich
